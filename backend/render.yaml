@@ -1,0 +1,40 @@
+# render.yaml — Déploiement DealFlash sur Render.com
+# Placer ce fichier à la racine du repo GitHub, puis :
+# Render Dashboard → New → Blueprint → connecter le repo
+# Render lit ce fichier et crée le service automatiquement.
+
+services:
+  - type: web
+    name: dealflash-api
+    runtime: node
+    plan: free           # Changer en "starter" ($7/mois) pour always-on
+    region: frankfurt    # Le plus proche de la France
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 10000       # Render impose 10000 sur le free tier
+
+      # DB_PATH — sur free tier les fichiers .db survivent aux redémarrages à chaud
+      # mais PAS aux redéploiements complets. Pour persistance totale :
+      # → Remplacer NeDB par MongoDB Atlas (voir README)
+      - key: DB_PATH
+        value: /opt/render/project/src/data
+
+      # RENDER_EXTERNAL_URL est injectée automatiquement par Render
+      # (utilisée pour le keep-alive). Ne pas renseigner manuellement.
+
+      # Optionnel : URL de ton frontend pour le CORS
+      # - key: FRONTEND_URL
+      #   value: https://dealflash.netlify.app
+
+      # Optionnel : alertes email via SendGrid
+      # - key: SENDGRID_API_KEY
+      #   fromDatabase:
+      #     name: dealflash-secrets
+      #     property: connectionString
