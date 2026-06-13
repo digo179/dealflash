@@ -432,6 +432,105 @@ app.post('/api/scrape', async (req, res) => {
   runAllScrapers().catch(console.error);
 });
 
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────────────
+const ADMIN_KEY = process.env.ADMIN_KEY || 'bonplansflash2024';
+function checkAdmin(req, res) {
+  const key = req.headers['x-admin-key'] || req.query.key;
+  if (key !== ADMIN_KEY) { res.status(401).json({ error:'Non autorisé' }); return false; }
+  return true;
+}
+
+// POST /api/admin/fetch-url — Extraire métadonnées d'une URL produit
+app.post('/api/admin/fetch-url', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error:'URL manquante' });
+  try {
+    const { data } = await axios.get(url, { headers: HEADERS, timeout: 12000 });
+    const $ = cheerio.load(data);
+    let title='', price=null, image='', was=null;
+    const merchant = detectMerchant(url);
+    if (merchant==='amazon') {
+      title = $('#productTitle').text().trim() || $('h1').first().text().trim();
+      const priceT=$('.a-price .a-offscreen').first().text();
+      const wasT=$('.a-text-strike').first().text();
+      price=parseFloat(priceT.replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      was=parseFloat(wasT.replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      image=$('#landingImage').attr('src')||$('[data-old-hires]').attr('src')||'';
+    } else if (merchant==='cdiscount') {
+      title=$('h1').first().text().trim();
+      price=parseFloat($('.price,.prdtPriceAmt').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      was=parseFloat($('.strikethrough,.priceStrike').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      image=$('meta[property="og:image"]').attr('content')||'';
+    } else if (merchant==='boulanger') {
+      title=$('h1').first().text().trim();
+      price=parseFloat($('.price,.current-price').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      was=parseFloat($('.old-price,.crossed-price').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      image=$('meta[property="og:image"]').attr('content')||'';
+    } else if (merchant==='darty') {
+      title=$('h1').first().text().trim();
+      price=parseFloat($('.price-integer,.price').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      was=parseFloat($('.price-old,.old-price').first().text().replace(/[^0-9,]/g,'').replace(',','.'))||null;
+      image=$('meta[property="og:image"]').attr('content')||'';
+    }
+    if (!title) title=$('meta[property="og:title"]').attr('content')||$('title').text().trim();
+    if (!image) image=$('meta[property="og:image"]').attr('content')||'';
+    if (!price) { const m=$('body').text().match(/(\d+[.,]\d{0,2})\s*€/); if(m) price=parseFloat(m[1].replace(',','.')); }
+    res.json({ title:title.slice(0,120), price, was, discount:(price&&was)?`-${Math.round((1-price/was)*100)}%`:null, image, url, merchant, category:guessCategory(title) });
+  } catch(e) { res.status(500).json({ error:`Impossible de charger l'URL: ${e.message}` }); }
+});
+
+// POST /api/admin/deals — Ajouter un deal manuellement
+app.post('/api/admin/deals', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const { title, price, was, discount, image, url, merchant, category, hot, stock } = req.body;
+    if (!title||!url) return res.status(400).json({ error:'Titre et URL requis' });
+    const deal = {
+      externalId:`manual-${Date.now()}`,
+      title:title.slice(0,120), price:parseFloat(price)||0,
+      was:was?parseFloat(was):null,
+      discount:discount||(price&&was?`-${Math.round((1-parseFloat(price)/parseFloat(was))*100)}%`:null),
+      image:image||null, url, merchant:merchant||detectMerchant(url),
+      category:category||guessCategory(title),
+      hot:hot===true||hot==='true', stock:parseInt(stock)||50,
+      scrapedAt:new Date(), source:'manual',
+    };
+    const inserted = await db.deals.insert(deal);
+    res.json({ success:true, deal:inserted });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// PUT /api/admin/deals/:id — Modifier un deal
+app.put('/api/admin/deals/:id', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const updates=req.body; delete updates._id;
+    await db.deals.update({ _id:req.params.id }, { $set:updates });
+    res.json({ success:true });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// DELETE /api/admin/deals/:id — Supprimer un deal
+app.delete('/api/admin/deals/:id', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    await db.deals.remove({ _id:req.params.id });
+    res.json({ success:true });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+// GET /api/admin/deals — Liste tous les deals
+app.get('/api/admin/deals', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const deals = await db.deals.find({});
+    deals.sort((a,b)=>new Date(b.scrapedAt)-new Date(a.scrapedAt));
+    res.json({ total:deals.length, deals });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
+
 // ─── HEALTH CHECK ─────────────────────────────────────────────────────────
 // Render appelle GET /health pour vérifier que le service est vivant.
 // Doit répondre 200 en < 10s sinon Render considère le service mort.

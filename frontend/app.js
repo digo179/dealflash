@@ -1,11 +1,20 @@
 // ─── DealFlash App ────────────────────────────────────────────────────────
-const API = 'http://localhost:3001/api';
+const API = 'https://dealflash-api.onrender.com/api';
+const AMAZON_TAG = 'nadjinal-21';
+
+function addAffiliateTag(url, merchant) {
+  if (!url) return url;
+  if (merchant === 'amazon') {
+    return url.includes('?') ? url + '&tag=' + AMAZON_TAG : url + '?tag=' + AMAZON_TAG;
+  }
+  return url;
+}
 
 let state = {
   deals: [], total: 0, skip: 0,
   filter: 'all', categoryFilter: '', search: '',
   sort: 'discount',
-  page: 'home',    // home | detail | compare | alerts | favorites
+  page: 'home',
   currentDeal: null,
   compareDeal1: null, compareDeal2: null,
   favorites: JSON.parse(localStorage.getItem('favorites')||'[]'),
@@ -13,7 +22,6 @@ let state = {
   stats: {},
 };
 
-// ─── API helpers ──────────────────────────────────────────────────────────
 async function apiFetch(path) {
   const r = await fetch(API + path);
   if (!r.ok) throw new Error(await r.text());
@@ -49,7 +57,6 @@ async function loadDealDetail(id) {
   renderPage();
 }
 
-// ─── RENDER MAIN ──────────────────────────────────────────────────────────
 function renderPage() {
   const pages = ['home','detail','compare','alerts','favorites'];
   pages.forEach(p => {
@@ -60,7 +67,6 @@ function renderPage() {
   if (state.page==='compare')   renderCompare();
   if (state.page==='alerts')    renderAlerts();
   if (state.page==='favorites') renderFavorites();
-  // nav active
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const navMap = {home:0, favorites:3, alerts:2};
   if (navMap[state.page]!==undefined)
@@ -155,7 +161,6 @@ function renderDeals() {
   document.getElementById('loadMoreBtn').style.display = state.deals.length < state.total ? 'block' : 'none';
 }
 
-// ─── DETAIL PAGE ──────────────────────────────────────────────────────────
 function renderDetail() {
   const d = state.currentDeal;
   if (!d) return;
@@ -164,6 +169,7 @@ function renderDetail() {
   const savings = d.was ? (d.was - d.price) : 0;
   const emojiMap={'Audio':'🎧','TV & Écrans':'📺','Informatique':'💻','Smartphones':'📱','Gaming':'🎮','Électroménager':'🏠','Cuisine':'☕','Photo & Vidéo':'📷','Montres':'⌚','Tablettes':'📱'};
   const emoji = emojiMap[d.category]||'🛍️';
+  const dealUrl = addAffiliateTag(d.url, d.merchant);
 
   document.getElementById('page-detail').innerHTML = `
 <div class="detail-header">
@@ -201,14 +207,12 @@ function renderDetail() {
     </div>
   </div>
 
-  <!-- Price History Chart -->
   <div class="section-card">
     <div class="section-card-title">📈 Historique des prix</div>
     <canvas id="priceChart" height="120"></canvas>
     <div id="priceChartEmpty" style="display:none;text-align:center;color:#666;padding:20px;font-size:13px">Pas encore d'historique</div>
   </div>
 
-  <!-- Alert prix -->
   <div class="section-card">
     <div class="section-card-title">🔔 Alerte prix</div>
     <div style="font-size:12px;color:#888;margin-bottom:10px">Reçois une notification quand le prix baisse sous ton seuil</div>
@@ -219,7 +223,6 @@ function renderDetail() {
     </div>
   </div>
 
-  <!-- Infos deal -->
   <div class="section-card">
     <div class="section-card-title">ℹ️ Infos deal</div>
     <div class="info-grid">
@@ -228,15 +231,15 @@ function renderDetail() {
       ${d.was?`<div class="info-row"><span class="info-label">Prix normal</span><span class="info-val">${fmt(d.was)}</span></div>`:''}
       ${d.was?`<div class="info-row"><span class="info-label">Réduction</span><span class="info-val" style="color:var(--green)">${Math.round((1-d.price/d.was)*100)}%</span></div>`:''}
       <div class="info-row"><span class="info-label">Stock</span><span class="info-val ${si.cls}">${d.stock} unités</span></div>
+      ${d.merchant==='amazon'?`<div class="info-row"><span class="info-label">Affiliation</span><span class="info-val" style="color:var(--green)">✅ Lien affilié actif</span></div>`:''}
     </div>
   </div>
 
-  <a href="${d.url}" target="_blank" rel="noopener" class="btn-deal-big" onclick="trackClick('${d._id}')">
+  <a href="${dealUrl}" target="_blank" rel="noopener" class="btn-deal-big" onclick="trackClick('${d._id}','${d.merchant}')">
     Voir sur ${cap(d.merchant)} →
   </a>
 </div>`;
 
-  // Draw chart
   setTimeout(() => drawPriceChart(d, state.currentHistory||[]), 100);
 }
 
@@ -268,7 +271,6 @@ function drawPriceChart(deal, history) {
   const px = i => pad.l + (i/(allPoints.length-1))*cw;
   const py = v => pad.t + ch - ((v-minP)/(maxP-minP))*ch;
 
-  // Grid
   ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1;
   [0,0.5,1].forEach(f=>{
     const y=pad.t+ch*f;
@@ -277,7 +279,6 @@ function drawPriceChart(deal, history) {
     ctx.fillText(fmt(minP+(maxP-minP)*(1-f)), pad.l-4, y+4);
   });
 
-  // Gradient fill
   const grad = ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
   grad.addColorStop(0,'rgba(0,196,106,0.3)');
   grad.addColorStop(1,'rgba(0,196,106,0)');
@@ -288,12 +289,10 @@ function drawPriceChart(deal, history) {
   ctx.lineTo(px(0),pad.t+ch);
   ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
 
-  // Line
   ctx.beginPath(); ctx.strokeStyle='#00C46A'; ctx.lineWidth=2.5;
   allPoints.forEach((p,i)=>{ i===0 ? ctx.moveTo(px(i),py(p.price)) : ctx.lineTo(px(i),py(p.price)); });
   ctx.stroke();
 
-  // Dots
   allPoints.forEach((p,i)=>{
     ctx.beginPath();
     ctx.arc(px(i),py(p.price),4,0,Math.PI*2);
@@ -301,7 +300,6 @@ function drawPriceChart(deal, history) {
     ctx.fill();
   });
 
-  // Date labels
   ctx.fillStyle='#555'; ctx.font='9px Inter'; ctx.textAlign='center';
   [0, Math.floor(allPoints.length/2), allPoints.length-1].forEach(i=>{
     if(allPoints[i]) {
@@ -311,7 +309,6 @@ function drawPriceChart(deal, history) {
   });
 }
 
-// ─── COMPARE PAGE ─────────────────────────────────────────────────────────
 function renderCompare() {
   const d1=state.compareDeal1, d2=state.compareDeal2;
   const el = document.getElementById('page-compare');
@@ -394,7 +391,6 @@ function removeCompare(slot) {
   renderCompare();
 }
 
-// ─── ALERTS PAGE ──────────────────────────────────────────────────────────
 function renderAlerts() {
   const el = document.getElementById('page-alerts');
   const alerts = state.alerts;
@@ -436,7 +432,6 @@ async function createAlert() {
   };
   state.alerts.push(alert);
   localStorage.setItem('alerts', JSON.stringify(state.alerts));
-  // Post to backend
   try {
     await fetch(`${API}/alerts`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(alert) });
   } catch(_) {}
@@ -451,7 +446,6 @@ function removeAlert(localId) {
   showToast('Alerte supprimée');
 }
 
-// ─── FAVORITES PAGE ───────────────────────────────────────────────────────
 async function renderFavorites() {
   const el = document.getElementById('page-favorites');
   el.innerHTML = `
@@ -465,11 +459,9 @@ async function renderFavorites() {
     document.getElementById('favsFeed').innerHTML=`<div class="empty-state">🤍<br>Aucun favori encore<br><small style="color:#666;margin-top:6px;display:block">Tape 🤍 sur un deal pour l'ajouter</small></div>`;
     return;
   }
-  // Load fav deals in parallel
   const deals = (await Promise.allSettled(
     state.favorites.map(id => apiFetch(`/deals/${id}`).then(r=>r.deal))
   )).filter(r=>r.status==='fulfilled').map(r=>r.value);
-
   document.getElementById('favsFeed').innerHTML = deals.map(dealCardHTML).join('');
 }
 
@@ -483,13 +475,11 @@ function toggleFav(id, event) {
     showToast('❤️ Ajouté aux favoris !');
   }
   localStorage.setItem('favorites', JSON.stringify(state.favorites));
-  // Re-render current view
   if (state.page==='home') renderDeals();
   else if (state.page==='detail') renderDetail();
   else if (state.page==='favorites') renderFavorites();
 }
 
-// ─── NAVIGATION ───────────────────────────────────────────────────────────
 function goHome() {
   state.page='home';
   renderPage();
@@ -501,19 +491,19 @@ function openDeal(id) {
   loadDealDetail(id);
 }
 
-function trackClick(id) {
-  console.log(`[CLICK] ${id}`);
+function trackClick(id, merchant) {
+  console.log(`[CLICK] ${id} — ${merchant}`);
 }
 
 function shareDetail() {
   const d = state.currentDeal;
   if (!d) return;
+  const dealUrl = addAffiliateTag(d.url, d.merchant);
   const text = `🔥 Deal : ${d.title} — ${fmt(d.price)}${d.was?` au lieu de ${fmt(d.was)}`:''}`;
-  if (navigator.share) navigator.share({ title: d.title, text, url: d.url });
-  else { navigator.clipboard?.writeText(text); showToast('Lien copié !'); }
+  if (navigator.share) navigator.share({ title: d.title, text, url: dealUrl });
+  else { navigator.clipboard?.writeText(dealUrl); showToast('Lien copié !'); }
 }
 
-// ─── UTILS ────────────────────────────────────────────────────────────────
 function fmt(n) { return n!=null ? n.toLocaleString('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:0}) : '—'; }
 function cap(s) { return s ? s.charAt(0).toUpperCase()+s.slice(1) : ''; }
 function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -526,7 +516,6 @@ function showToast(msg) {
   window._toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
 }
 
-// ─── AI ASSISTANT ─────────────────────────────────────────────────────────
 async function askAI() {
   const input = document.getElementById('aiInput');
   const query = input.value.trim();
@@ -555,7 +544,6 @@ async function askAI() {
   }
 }
 
-// ─── MINI CARDS (flash deals) ─────────────────────────────────────────────
 function renderMiniCards() {
   const hotDeals = state.deals.filter(d=>d.hot).slice(0,6);
   const el = document.getElementById('hotScroll');
@@ -579,7 +567,6 @@ function renderMiniCards() {
   }).join('');
 }
 
-// ─── CATEGORIES ───────────────────────────────────────────────────────────
 async function loadCategories() {
   try {
     const cats = await apiFetch('/categories');
@@ -597,9 +584,7 @@ function filterCat(el, cat) {
   loadDeals(true).then(renderMiniCards);
 }
 
-// ─── INIT ─────────────────────────────────────────────────────────────────
 async function init() {
-  // Nav
   document.querySelectorAll('.nav-item').forEach((item,i) => {
     item.addEventListener('click', () => {
       const pages=['home','trending','alerts','favorites','profile'];
@@ -610,7 +595,6 @@ async function init() {
     });
   });
 
-  // Filters
   document.querySelectorAll('#filtersRow .chip').forEach(chip => {
     chip.addEventListener('click', () => {
       document.querySelectorAll('#filtersRow .chip').forEach(c=>c.classList.remove('active'));
@@ -620,31 +604,24 @@ async function init() {
     });
   });
 
-  // Sort
   document.getElementById('sortSelect')?.addEventListener('change', e => {
     state.sort = e.target.value;
     loadDeals(true);
   });
 
-  // Search
   let searchTimer;
   document.getElementById('searchInput')?.addEventListener('input', e => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { state.search=e.target.value; loadDeals(true); }, 400);
   });
 
-  // Load more
   document.getElementById('loadMoreBtn')?.addEventListener('click', () => loadDeals(false));
-
-  // AI
   document.getElementById('aiBtn')?.addEventListener('click', askAI);
   document.getElementById('aiInput')?.addEventListener('keydown', e=>{ if(e.key==='Enter') askAI(); });
 
-  // Load
   await Promise.all([loadDeals(true), loadStats(), loadCategories()]);
   renderMiniCards();
 
-  // Live stock update
   setInterval(async ()=>{
     if(state.page!=='home') return;
     try {

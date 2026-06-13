@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — BonPlansFlash</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #0A0A0A; color: #F5F5F5; min-height: 100vh; }
+
+/* LOGIN */
+.login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+.login-box { background: #161616; border: 1px solid #2A2A2A; border-radius: 16px; padding: 32px; width: 100%; max-width: 380px; }
+.login-box h1 { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.login-box p { font-size: 13px; color: #888; margin-bottom: 24px; }
+
+/* LAYOUT */
+.app { display: none; }
+.sidebar { width: 220px; background: #111; border-right: 1px solid #1E1E1E; min-height: 100vh; padding: 20px 16px; position: fixed; top: 0; left: 0; }
+.sidebar .logo { font-size: 16px; font-weight: 900; color: #F5F5F5; margin-bottom: 6px; }
+.sidebar .logo span { color: #FF2D55; }
+.sidebar .env-badge { font-size: 11px; color: #555; margin-bottom: 28px; display: block; }
+.nav-btn { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; color: #888; transition: all .15s; width: 100%; margin-bottom: 4px; border: none; background: none; text-align: left; }
+.nav-btn:hover, .nav-btn.active { background: #1E1E1E; color: #F5F5F5; }
+.nav-btn.active { color: #FF2D55; }
+.main { margin-left: 220px; padding: 28px; }
+
+/* HEADER */
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.page-title { font-size: 22px; font-weight: 800; }
+.page-subtitle { font-size: 13px; color: #888; margin-top: 4px; }
+
+/* STATS */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+.stat-card { background: #161616; border: 1px solid #2A2A2A; border-radius: 12px; padding: 16px; }
+.stat-card .val { font-size: 28px; font-weight: 800; }
+.stat-card .lbl { font-size: 12px; color: #888; margin-top: 4px; }
+
+/* FORM */
+.card { background: #161616; border: 1px solid #2A2A2A; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.card-title { font-size: 14px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.url-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.inp { background: #1E1E1E; border: 1px solid #2A2A2A; border-radius: 10px; padding: 11px 14px; color: #F5F5F5; font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s; width: 100%; }
+.inp:focus { border-color: #FF2D55; }
+.inp::placeholder { color: #555; }
+select.inp { cursor: pointer; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.form-label { font-size: 12px; color: #888; margin-bottom: 5px; display: block; font-weight: 600; }
+.preview-box { display: flex; gap: 16px; align-items: flex-start; background: #1A1A1A; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+.preview-img { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; background: #2A2A2A; flex-shrink: 0; }
+.preview-img-placeholder { width: 80px; height: 80px; background: #2A2A2A; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+.preview-info { flex: 1; }
+.preview-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; line-height: 1.3; }
+.preview-price { font-size: 20px; font-weight: 900; color: #00C46A; }
+.preview-was { font-size: 13px; color: #888; text-decoration: line-through; margin-left: 8px; }
+.preview-discount { background: rgba(0,196,106,.15); color: #00C46A; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-left: 8px; }
+.merchant-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; display: inline-block; margin-top: 6px; }
+
+/* BUTTONS */
+.btn { padding: 11px 20px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; border: none; font-family: inherit; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: #FF2D55; color: #fff; }
+.btn-primary:hover { opacity: .85; }
+.btn-secondary { background: #1E1E1E; color: #F5F5F5; border: 1px solid #2A2A2A; }
+.btn-secondary:hover { border-color: #444; }
+.btn-success { background: #00C46A; color: #fff; }
+.btn-danger { background: rgba(255,45,85,.15); color: #FF2D55; border: 1px solid rgba(255,45,85,.3); padding: 7px 12px; font-size: 12px; }
+.btn-danger:hover { background: rgba(255,45,85,.25); }
+.btn-sm { padding: 7px 12px; font-size: 12px; }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* TABLE */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid #2A2A2A; white-space: nowrap; }
+td { padding: 12px; border-bottom: 1px solid #1A1A1A; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.02); }
+.deal-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; background: #2A2A2A; }
+.hot-badge { background: rgba(255,45,85,.15); color: #FF2D55; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.manual-badge { background: rgba(10,132,255,.15); color: #0A84FF; font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+.auto-badge { background: rgba(0,196,106,.1); color: #00C46A; font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+
+/* TOAST */
+.toast { position: fixed; bottom: 24px; right: 24px; background: #1E1E1E; border: 1px solid #2A2A2A; border-radius: 12px; padding: 12px 20px; font-size: 13px; font-weight: 600; z-index: 999; opacity: 0; transform: translateY(10px); transition: all .25s; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.success { border-color: rgba(0,196,106,.4); color: #00C46A; }
+.toast.error { border-color: rgba(255,45,85,.4); color: #FF2D55; }
+
+/* SPINNER */
+.spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* TOGGLE */
+.toggle-wrap { display: flex; align-items: center; gap: 10px; }
+.toggle { position: relative; width: 44px; height: 24px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: #2A2A2A; border-radius: 24px; cursor: pointer; transition: .2s; }
+.toggle-slider:before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #888; border-radius: 50%; transition: .2s; }
+.toggle input:checked + .toggle-slider { background: rgba(255,45,85,.3); }
+.toggle input:checked + .toggle-slider:before { background: #FF2D55; transform: translateX(20px); }
+
+.empty-state { text-align: center; padding: 48px; color: #555; font-size: 14px; }
+.section-hidden { display: none; }
+
+.loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 100; display: none; }
+.loading-box { background: #161616; border-radius: 14px; padding: 28px 36px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-box">
+    <h1>🔐 Admin BonPlansFlash</h1>
+    <p>Entrez votre mot de passe administrateur</p>
+    <div style="margin-bottom:12px">
+      <input class="inp" type="password" id="pwdInput" placeholder="Mot de passe..." onkeydown="if(event.key==='Enter')login()">
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="login()">Se connecter</button>
+    <div id="loginError" style="color:#FF2D55;font-size:12px;margin-top:10px;display:none">Mot de passe incorrect</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="logo">BonPlans<span>Flash</span></div>
+    <span class="env-badge">⚡ Dashboard Admin</span>
+    <button class="nav-btn active" onclick="showSection('add')" id="nav-add">➕ Ajouter un deal</button>
+    <button class="nav-btn" onclick="showSection('list')" id="nav-list">📋 Gérer les deals</button>
+    <button class="nav-btn" onclick="showSection('stats')" id="nav-stats">📊 Statistiques</button>
+    <div style="margin-top:auto;padding-top:20px;border-top:1px solid #1E1E1E;margin-top:40px">
+      <a href="https://bonplansflash.fr" target="_blank" class="nav-btn" style="text-decoration:none">🌐 Voir le site</a>
+      <button class="nav-btn" onclick="logout()">🚪 Déconnexion</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- SECTION: ADD DEAL -->
+    <div id="section-add">
+      <div class="page-header">
+        <div>
+          <div class="page-title">➕ Ajouter un deal</div>
+          <div class="page-subtitle">Colle une URL Amazon, Boulanger, Darty ou Cdiscount — on détecte tout automatiquement</div>
+        </div>
+      </div>
+
+      <!-- URL Fetch -->
+      <div class="card">
+        <div class="card-title">🔗 URL du produit</div>
+        <div class="url-row">
+          <input class="inp" id="productUrl" placeholder="https://www.amazon.fr/dp/B09XS7JWHH ou https://www.boulanger.com/ref/..." style="flex:1">
+          <button class="btn btn-secondary" id="fetchBtn" onclick="fetchUrl()">
+            <span id="fetchBtnText">Détecter automatiquement</span>
+            <div class="spinner" id="fetchSpinner" style="display:none"></div>
+          </button>
+        </div>
+        <div style="font-size:12px;color:#555">Fonctionne avec Amazon FR, Cdiscount, Boulanger, Darty, Fnac, LDLC...</div>
+      </div>
+
+      <!-- Preview -->
+      <div class="card" id="previewCard" style="display:none">
+        <div class="card-title">👁️ Aperçu détecté</div>
+        <div class="preview-box" id="previewBox"></div>
+      </div>
+
+      <!-- Form -->
+      <div class="card" id="formCard" style="display:none">
+        <div class="card-title">✏️ Détails du deal</div>
+
+        <div style="margin-bottom:12px">
+          <label class="form-label">Titre *</label>
+          <input class="inp" id="fTitle" placeholder="Nom du produit">
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="form-label">Prix actuel (€) *</label>
+            <input class="inp" id="fPrice" type="number" step="0.01" placeholder="299.99">
+          </div>
+          <div>
+            <label class="form-label">Prix d'origine (€)</label>
+            <input class="inp" id="fWas" type="number" step="0.01" placeholder="499.99">
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="form-label">Marchand</label>
+            <select class="inp" id="fMerchant">
+              <option value="amazon">Amazon</option>
+              <option value="cdiscount">Cdiscount</option>
+              <option value="boulanger">Boulanger</option>
+              <option value="darty">Darty</option>
+              <option value="fnac">Fnac</option>
+              <option value="ldlc">LDLC</option>
+              <option value="autres">Autres</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Catégorie</label>
+            <select class="inp" id="fCategory">
+              <option>Audio</option>
+              <option>TV & Écrans</option>
+              <option>Informatique</option>
+              <option>Smartphones</option>
+              <option>Tablettes</option>
+              <option>Gaming</option>
+              <option>Électroménager</option>
+              <option>Cuisine</option>
+              <option>Photo & Vidéo</option>
+              <option>Montres</option>
+              <option>High-Tech</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label class="form-label">URL du produit *</label>
+          <input class="inp" id="fUrl" placeholder="https://...">
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label class="form-label">URL de l'image</label>
+          <input class="inp" id="fImage" placeholder="https://... (optionnel)">
+        </div>
+
+        <div class="form-grid" style="margin-bottom:16px">
+          <div>
+            <label class="form-label">Stock (unités)</label>
+            <input class="inp" id="fStock" type="number" value="50">
+          </div>
+          <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+            <div class="toggle-wrap">
+              <label class="toggle"><input type="checkbox" id="fHot"><span class="toggle-slider"></span></label>
+              <span style="font-size:13px;font-weight:600">🔥 Deal Hot (mise en avant)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn btn-primary" onclick="submitDeal()" id="submitBtn">✅ Publier le deal</button>
+          <button class="btn btn-secondary" onclick="resetForm()">🔄 Réinitialiser</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION: LIST -->
+    <div id="section-list" class="section-hidden">
+      <div class="page-header">
+        <div>
+          <div class="page-title">📋 Gérer les deals</div>
+          <div class="page-subtitle" id="listSubtitle">Chargement...</div>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="loadDeals()">🔄 Actualiser</button>
+          <button class="btn btn-secondary" onclick="triggerScrape()">⚡ Lancer le scraping</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card" style="padding:14px 20px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input class="inp" id="searchDeals" placeholder="🔍 Rechercher..." style="width:220px" oninput="filterDeals()">
+          <select class="inp" id="filterMerchant" style="width:160px" onchange="filterDeals()">
+            <option value="">Tous les marchands</option>
+            <option value="amazon">Amazon</option>
+            <option value="cdiscount">Cdiscount</option>
+            <option value="boulanger">Boulanger</option>
+            <option value="darty">Darty</option>
+          </select>
+          <select class="inp" id="filterSource" style="width:140px" onchange="filterDeals()">
+            <option value="">Toutes les sources</option>
+            <option value="manual">Manuels</option>
+            <option value="dealabs">Dealabs</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Titre</th>
+                <th>Marchand</th>
+                <th>Prix</th>
+                <th>Remise</th>
+                <th>Source</th>
+                <th>Hot</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="dealsTable">
+              <tr><td colspan="8" class="empty-state">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION: STATS -->
+    <div id="section-stats" class="section-hidden">
+      <div class="page-header">
+        <div>
+          <div class="page-title">📊 Statistiques</div>
+          <div class="page-subtitle">Vue d'ensemble de ton site</div>
+        </div>
+        <button class="btn btn-secondary" onclick="loadStats()">🔄 Actualiser</button>
+      </div>
+
+      <div class="stats-row" id="statsRow">
+        <div class="stat-card"><div class="val" id="s-total">—</div><div class="lbl">Deals actifs</div></div>
+        <div class="stat-card"><div class="val" id="s-hot" style="color:#FF2D55">—</div><div class="lbl">Deals Hot 🔥</div></div>
+        <div class="stat-card"><div class="val" id="s-best" style="color:#00C46A">—</div><div class="lbl">Meilleure remise</div></div>
+        <div class="stat-card"><div class="val" id="s-low" style="color:#FF9500">—</div><div class="lbl">Stock faible</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📦 Deals par marchand</div>
+        <div id="merchantStats"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚡ Actions rapides</div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="triggerScrape()">🤖 Lancer scraping Dealabs maintenant</button>
+          <a href="https://bonplansflash.fr" target="_blank" class="btn btn-secondary">🌐 Voir le site public</a>
+          <a href="https://dashboard.render.com" target="_blank" class="btn btn-secondary">⚙️ Dashboard Render</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-box">
+    <div class="spinner" style="margin:0 auto 12px;width:32px;height:32px;border-width:3px"></div>
+    <div style="font-size:14px;color:#888" id="loadingText">Chargement...</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://dealflash-api.onrender.com/api';
+let ADMIN_KEY = '';
+let allDeals = [];
+
+// ─── AUTH ──────────────────────────────────────────────────────────────────
+function login() {
+  const pwd = document.getElementById('pwdInput').value.trim();
+  if (!pwd) return;
+  ADMIN_KEY = pwd;
+  // Test avec un appel API
+  fetch(`${API}/admin/deals?key=${ADMIN_KEY}`)
+    .then(r => {
+      if (r.ok) {
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('app').style.display = 'flex';
+        loadStats();
+        loadDeals();
+      } else {
+        document.getElementById('loginError').style.display = 'block';
+        ADMIN_KEY = '';
+      }
+    }).catch(() => {
+      document.getElementById('loginError').style.display = 'block';
+    });
+}
+
+function logout() {
+  ADMIN_KEY = '';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+function adminHeaders() {
+  return { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY };
+}
+
+// ─── NAVIGATION ────────────────────────────────────────────────────────────
+function showSection(name) {
+  ['add','list','stats'].forEach(s => {
+    document.getElementById(`section-${s}`).classList.toggle('section-hidden', s!==name);
+    document.getElementById(`nav-${s}`).classList.toggle('active', s===name);
+  });
+  if (name==='list') loadDeals();
+  if (name==='stats') loadStats();
+}
+
+// ─── FETCH URL ─────────────────────────────────────────────────────────────
+async function fetchUrl() {
+  const url = document.getElementById('productUrl').value.trim();
+  if (!url) { showToast('Colle une URL produit', 'error'); return; }
+
+  document.getElementById('fetchBtnText').textContent = 'Détection...';
+  document.getElementById('fetchSpinner').style.display = 'block';
+  document.getElementById('fetchBtn').disabled = true;
+
+  try {
+    const r = await fetch(`${API}/admin/fetch-url`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ url })
+    });
+    const data = await r.json();
+
+    if (!r.ok) throw new Error(data.error || 'Erreur');
+
+    // Remplir le formulaire
+    document.getElementById('fTitle').value    = data.title || '';
+    document.getElementById('fPrice').value    = data.price || '';
+    document.getElementById('fWas').value      = data.was || '';
+    document.getElementById('fUrl').value      = data.url || url;
+    document.getElementById('fImage').value    = data.image || '';
+    document.getElementById('fCategory').value = data.category || 'High-Tech';
+    if (data.merchant) document.getElementById('fMerchant').value = data.merchant;
+
+    updatePreview(data);
+    document.getElementById('previewCard').style.display = 'block';
+    document.getElementById('formCard').style.display = 'block';
+    showToast('✅ Produit détecté !', 'success');
+  } catch(e) {
+    showToast('❌ ' + e.message, 'error');
+    // Afficher quand même le form vide
+    document.getElementById('fUrl').value = url;
+    const merchant = detectMerchantClient(url);
+    if (merchant) document.getElementById('fMerchant').value = merchant;
+    document.getElementById('formCard').style.display = 'block';
+  } finally {
+    document.getElementById('fetchBtnText').textContent = 'Détecter automatiquement';
+    document.getElementById('fetchSpinner').style.display = 'none';
+    document.getElementById('fetchBtn').disabled = false;
+  }
+}
+
+function detectMerchantClient(url) {
+  if (/amazon\.fr/.test(url)) return 'amazon';
+  if (/cdiscount/.test(url)) return 'cdiscount';
+  if (/boulanger/.test(url)) return 'boulanger';
+  if (/darty/.test(url)) return 'darty';
+  if (/fnac/.test(url)) return 'fnac';
+  if (/ldlc/.test(url)) return 'ldlc';
+  return '';
+}
+
+function getMerchantColor(m) {
+  const colors = {amazon:'#FF9900',cdiscount:'#E2001A',boulanger:'#E40046',darty:'#FF6600',fnac:'#E5A000',ldlc:'#0066CC'};
+  return colors[m]||'#888';
+}
+
+function updatePreview(data) {
+  const discount = data.discount || (data.price && data.was ? `-${Math.round((1-data.price/data.was)*100)}%` : '');
+  document.getElementById('previewBox').innerHTML = `
+    ${data.image
+      ? `<img src="${data.image}" class="preview-img" onerror="this.style.display='none'">`
+      : `<div class="preview-img-placeholder">🛍️</div>`}
+    <div class="preview-info">
+      <div class="preview-title">${data.title||'Titre non détecté'}</div>
+      <div>
+        ${data.price ? `<span class="preview-price">${data.price}€</span>` : ''}
+        ${data.was ? `<span class="preview-was">${data.was}€</span>` : ''}
+        ${discount ? `<span class="preview-discount">${discount}</span>` : ''}
+      </div>
+      ${data.merchant ? `<span class="merchant-badge" style="background:${getMerchantColor(data.merchant)}22;color:${getMerchantColor(data.merchant)}">${data.merchant}</span>` : ''}
+    </div>`;
+}
+
+// Mise à jour preview en temps réel
+['fTitle','fPrice','fWas','fImage','fMerchant'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', () => {
+    const data = {
+      title: document.getElementById('fTitle').value,
+      price: parseFloat(document.getElementById('fPrice').value) || null,
+      was: parseFloat(document.getElementById('fWas').value) || null,
+      image: document.getElementById('fImage').value,
+      merchant: document.getElementById('fMerchant').value,
+    };
+    if (document.getElementById('previewCard').style.display !== 'none') {
+      updatePreview(data);
+    }
+  });
+});
+
+// ─── SUBMIT DEAL ───────────────────────────────────────────────────────────
+async function submitDeal() {
+  const title = document.getElementById('fTitle').value.trim();
+  const url   = document.getElementById('fUrl').value.trim();
+  const price = parseFloat(document.getElementById('fPrice').value);
+
+  if (!title) { showToast('❌ Titre requis', 'error'); return; }
+  if (!url)   { showToast('❌ URL requise', 'error'); return; }
+  if (!price) { showToast('❌ Prix requis', 'error'); return; }
+
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').textContent = 'Publication...';
+
+  const was = parseFloat(document.getElementById('fWas').value) || null;
+
+  try {
+    const r = await fetch(`${API}/admin/deals`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        title, url, price, was,
+        image: document.getElementById('fImage').value || null,
+        merchant: document.getElementById('fMerchant').value,
+        category: document.getElementById('fCategory').value,
+        hot: document.getElementById('fHot').checked,
+        stock: parseInt(document.getElementById('fStock').value) || 50,
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    showToast('✅ Deal publié sur bonplansflash.fr !', 'success');
+    resetForm();
+  } catch(e) {
+    showToast('❌ ' + e.message, 'error');
+  } finally {
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = '✅ Publier le deal';
+  }
+}
+
+function resetForm() {
+  ['fTitle','fPrice','fWas','fUrl','fImage'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fStock').value = '50';
+  document.getElementById('fHot').checked = false;
+  document.getElementById('productUrl').value = '';
+  document.getElementById('previewCard').style.display = 'none';
+  document.getElementById('formCard').style.display = 'none';
+}
+
+// ─── DEALS LIST ────────────────────────────────────────────────────────────
+async function loadDeals() {
+  try {
+    const r = await fetch(`${API}/admin/deals`, { headers: adminHeaders() });
+    const data = await r.json();
+    allDeals = data.deals || [];
+    document.getElementById('listSubtitle').textContent = `${allDeals.length} deals au total`;
+    filterDeals();
+  } catch(e) { showToast('Erreur chargement deals', 'error'); }
+}
+
+function filterDeals() {
+  const search = document.getElementById('searchDeals').value.toLowerCase();
+  const merchant = document.getElementById('filterMerchant').value;
+  const source = document.getElementById('filterSource').value;
+
+  let filtered = allDeals.filter(d => {
+    if (search && !d.title?.toLowerCase().includes(search)) return false;
+    if (merchant && d.merchant !== merchant) return false;
+    if (source && d.source !== source) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('dealsTable');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun deal trouvé</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(d => {
+    const discount = d.was ? Math.round((1-d.price/d.was)*100) : null;
+    return `
+    <tr>
+      <td>${d.image ? `<img src="${d.image}" class="deal-thumb" onerror="this.src=''">` : '<div class="deal-thumb" style="display:flex;align-items:center;justify-content:center;font-size:20px">🛍️</div>'}</td>
+      <td style="max-width:280px">
+        <div style="font-weight:600;font-size:13px;line-height:1.3;margin-bottom:4px">${d.title?.slice(0,80)||'—'}${d.title?.length>80?'...':''}</div>
+        <a href="${d.url}" target="_blank" style="color:#555;font-size:11px;text-decoration:none">↗ Voir le lien</a>
+      </td>
+      <td><span class="merchant-badge" style="background:${getMerchantColor(d.merchant)}22;color:${getMerchantColor(d.merchant)}">${d.merchant||'—'}</span></td>
+      <td style="font-weight:700;color:#00C46A;white-space:nowrap">${d.price ? d.price+'€' : '—'}${d.was ? `<br><span style="font-size:11px;color:#555;text-decoration:line-through">${d.was}€</span>` : ''}</td>
+      <td>${discount ? `<span style="color:#00C46A;font-weight:700">-${discount}%</span>` : '—'}</td>
+      <td>${d.source==='manual' ? '<span class="manual-badge">Manuel</span>' : d.source==='dealabs' ? '<span class="auto-badge">Dealabs</span>' : '<span class="auto-badge">Auto</span>'}</td>
+      <td>${d.hot ? '<span class="hot-badge">🔥 Hot</span>' : '<span style="color:#555;font-size:12px">Non</span>'}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-danger" onclick="deleteDeal('${d._id}','${(d.title||'').slice(0,30).replace(/'/g,"\\'")}')">🗑️ Supprimer</button>
+          <button class="btn btn-sm btn-secondary" onclick="toggleHot('${d._id}',${!d.hot})">${d.hot?'❄️ Retirer hot':'🔥 Mettre hot'}</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function deleteDeal(id, title) {
+  if (!confirm(`Supprimer "${title}..." ?`)) return;
+  try {
+    await fetch(`${API}/admin/deals/${id}`, { method:'DELETE', headers:adminHeaders() });
+    allDeals = allDeals.filter(d=>d._id!==id);
+    filterDeals();
+    showToast('Deal supprimé', 'success');
+  } catch(e) { showToast('Erreur suppression', 'error'); }
+}
+
+async function toggleHot(id, hot) {
+  try {
+    await fetch(`${API}/admin/deals/${id}`, { method:'PUT', headers:adminHeaders(), body:JSON.stringify({hot}) });
+    const d = allDeals.find(x=>x._id===id);
+    if (d) d.hot = hot;
+    filterDeals();
+    showToast(hot ? '🔥 Deal mis en avant !' : 'Deal retiré du hot', 'success');
+  } catch(e) { showToast('Erreur', 'error'); }
+}
+
+// ─── STATS ─────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/stats`);
+    const s = await r.json();
+    document.getElementById('s-total').textContent = s.total || 0;
+    document.getElementById('s-hot').textContent = s.hot || 0;
+    document.getElementById('s-best').textContent = s.bestDiscount ? `-${s.bestDiscount}%` : '—';
+    document.getElementById('s-low').textContent = s.lowStock || 0;
+
+    if (s.byMerchant) {
+      const total = Object.values(s.byMerchant).reduce((a,b)=>a+b,0);
+      document.getElementById('merchantStats').innerHTML = Object.entries(s.byMerchant)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([m,n]) => `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <span class="merchant-badge" style="width:100px;text-align:center;background:${getMerchantColor(m)}22;color:${getMerchantColor(m)}">${m}</span>
+            <div style="flex:1;background:#1E1E1E;border-radius:4px;height:8px;overflow:hidden">
+              <div style="height:100%;background:${getMerchantColor(m)};width:${Math.round(n/total*100)}%;border-radius:4px"></div>
+            </div>
+            <span style="font-size:13px;font-weight:600;width:40px;text-align:right">${n}</span>
+          </div>`).join('');
+    }
+  } catch(e) {}
+}
+
+// ─── SCRAPE ────────────────────────────────────────────────────────────────
+async function triggerScrape() {
+  showToast('⚡ Scraping lancé...', 'success');
+  try {
+    await fetch(`${API}/scrape`, { method:'POST', headers:adminHeaders() });
+    setTimeout(loadDeals, 8000);
+  } catch(e) {}
+}
+
+// ─── TOAST ─────────────────────────────────────────────────────────────────
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  clearTimeout(window._tt);
+  window._tt = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// Enter sur login
+document.getElementById('pwdInput').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
+</script>
+</body>
+</html>
