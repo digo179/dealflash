@@ -23,15 +23,8 @@ const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL, // ex: https://dealflash.netlify.app
 ].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, cb) => {
-    // Autoriser les requêtes sans origin (Postman, curl) + les origines connues
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(null, true); // En dev on autorise tout — restreindre en prod si besoin
-  },
-  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(cors({ origin: true, methods: ["GET","POST","PUT","DELETE","OPTIONS"], allowedHeaders: ["Content-Type","Authorization","x-admin-key"], credentials: true }));
+app.options("*", cors());
 
 app.use(express.json());
 
