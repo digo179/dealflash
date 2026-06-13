@@ -82,6 +82,74 @@ function guessCategory(title) {
 }
 
 // ─── SCRAPERS ─────────────────────────────────────────────────────────────
+// ─── DEALABS RSS SCRAPER ──────────────────────────────────────────────────
+async function scrapeDealabs() {
+  const deals = [];
+  const feeds = [
+    'https://www.dealabs.com/rss/feeds/hotdeals',
+    'https://www.dealabs.com/rss/feeds/group/8',
+    'https://www.dealabs.com/rss/feeds/group/13',
+    'https://www.dealabs.com/rss/feeds/group/9',
+    'https://www.dealabs.com/rss/feeds/group/11',
+  ];
+  for (const feedUrl of feeds) {
+    try {
+      const { data } = await axios.get(feedUrl, {
+        headers: { ...HEADERS, 'Accept': 'application/rss+xml, application/xml, text/xml' },
+        timeout: 10000
+      });
+      const $ = cheerio.load(data, { xmlMode: true });
+      $('item').each((i, el) => {
+        try {
+          const $el = $(el);
+          const title   = $el.find('title').first().text().trim();
+          const link    = $el.find('link').first().text().trim() || $el.find('guid').first().text().trim();
+          const desc    = $el.find('description').first().text().trim();
+          const pubDate = $el.find('pubDate').first().text().trim();
+          const enclosure = $el.find('enclosure').attr('url') || null;
+          if (!title || !link) return;
+          const priceMatch = (title+' '+desc).match(/(\d+[.,]\d{0,2})\s*€|€\s*(\d+[.,]\d{0,2})/);
+          const wasMatch   = (title+' '+desc).match(/(?:au lieu de|était|instead of|was)\s*(\d+[.,]\d{0,2})\s*€/i);
+          const discMatch  = (title+' '+desc).match(/-(\d+)\s*%/);
+          const price = priceMatch ? parseFloat((priceMatch[1]||priceMatch[2]).replace(',','.')) : null;
+          const was   = wasMatch   ? parseFloat(wasMatch[1].replace(',','.')) : null;
+          const discount = discMatch ? `-${discMatch[1]}%` : (price&&was ? `-${Math.round((1-price/was)*100)}%` : null);
+          const merchant = detectMerchant(link+' '+title+' '+desc);
+          let image = enclosure;
+          if (!image) { const m=desc.match(/<img[^>]+src=["']([^"']+)["']/i); if(m) image=m[1]; }
+          deals.push({
+            externalId: `dlb-${Buffer.from(link).toString('base64').slice(0,24)}`,
+            merchant, title:title.slice(0,120), price, was, discount, image,
+            url:link, category:guessCategory(title),
+            scrapedAt: pubDate?new Date(pubDate):new Date(),
+            stock:Math.floor(Math.random()*60)+20,
+            hot:!!(discount&&parseInt(discount)>=30),
+            source:'dealabs',
+          });
+        } catch(_){}
+      });
+    } catch(e){ console.error(`[DEALABS] ${feedUrl}: ${e.message}`); }
+  }
+  const withPrice = deals.filter(d=>d.price&&d.price>0);
+  console.log(`[DEALABS] ${deals.length} bruts → ${withPrice.length} avec prix`);
+  return withPrice;
+}
+
+function detectMerchant(text) {
+  const t = text.toLowerCase();
+  if (/amazon\.fr|amazon\.com/.test(t)) return 'amazon';
+  if (/cdiscount/.test(t)) return 'cdiscount';
+  if (/boulanger/.test(t)) return 'boulanger';
+  if (/darty/.test(t)) return 'darty';
+  if (/fnac/.test(t)) return 'fnac';
+  if (/ldlc/.test(t)) return 'ldlc';
+  if (/rueducommerce|rue du commerce/.test(t)) return 'rueducommerce';
+  if (/rakuten/.test(t)) return 'rakuten';
+  if (/leclerc/.test(t)) return 'leclerc';
+  return 'autres';
+}
+
+// ─── SCRAPERS ─────────────────────────────────────────────────────────────
 
 async function scrapeAmazon() {
   const deals = [];
@@ -208,6 +276,7 @@ async function scrapeDarty() {
 async function runAllScrapers() {
   console.log('[SCRAPER] Démarrage...');
   const scrapers = [
+    { name:'Dealabs',   fn:scrapeDealabs },
     { name:'Amazon', fn:scrapeAmazon },
     { name:'Cdiscount', fn:scrapeCdiscount },
     { name:'Boulanger', fn:scrapeBoulanger },
@@ -384,6 +453,9 @@ app.get('/health', async (req, res) => {
 
 // ─── SCHEDULER ────────────────────────────────────────────────────────────
 // Scraping toutes les 2h
+// Dealabs toutes les heures
+cron.schedule('0 * * * *', () => scrapeDealabs().then(async deals => { for(const d of deals) { const ex=await db.deals.findOne({externalId:d.externalId}); if(!ex) await db.deals.insert(d); } console.log(`[CRON-DEALABS] ${deals.length} deals`); }).catch(console.error));
+// Scrapers complets toutes les 2h
 cron.schedule('0 */2 * * *', () => runAllScrapers().catch(console.error));
 
 // Nettoyage des vieux deals à 3h du matin
@@ -447,5 +519,20 @@ const server = app.listen(PORT, HOST, async () => {
   if (process.env.RENDER_EXTERNAL_URL)
     console.log(`   → Public : ${process.env.RENDER_EXTERNAL_URL}`);
   console.log(`   → Health : http://localhost:${PORT}/health\n`);
+  console.log(`   → Health : http://localhost:${PORT}/health\n`);
   await seedDemoData();
+  // Lancer Dealabs au démarrage pour avoir de vrais deals immédiatement
+  setTimeout(async () => {
+    console.log('[STARTUP] Scraping Dealabs...');
+    try {
+      const deals = await scrapeDealabs();
+      let added = 0;
+      for (const deal of deals) {
+        const existing = await db.deals.findOne({ externalId: deal.externalId });
+        if (!existing) { await db.deals.insert(deal); added++; }
+        else await db.deals.update({ externalId: deal.externalId }, { $set: deal });
+      }
+      console.log(`[STARTUP] Dealabs: ${added} nouveaux deals ajoutés`);
+    } catch(e) { console.error('[STARTUP] Dealabs erreur:', e.message); }
+  }, 3000);
 });
