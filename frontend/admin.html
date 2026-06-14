@@ -398,6 +398,121 @@ function showSection(name) {
 }
 
 // ─── FETCH URL ─────────────────────────────────────────────────────────────
+// Proxies CORS publics — on essaie dans l'ordre jusqu'à ce qu'un fonctionne
+const CORS_PROXIES = [
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://cors-anywhere.herokuapp.com/${url}`,
+];
+
+async function fetchWithProxy(url) {
+  for (const proxy of CORS_PROXIES) {
+    try {
+      const proxyUrl = proxy(url);
+      const r = await fetch(proxyUrl, { timeout: 10000 });
+      if (!r.ok) continue;
+      const data = await r.json();
+      // allorigins retourne { contents: '...' }
+      return data.contents || await r.text();
+    } catch(e) { continue; }
+  }
+  throw new Error('Tous les proxies ont échoué');
+}
+
+function extractAmazonASIN(url) {
+  const m = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})/);
+  return m ? (m[1] || m[2]) : null;
+}
+
+function parseProductPage(html, url) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const merchant = detectMerchantClient(url);
+  let title = '', price = null, was = null, image = '';
+
+  // Extraire via meta OG en priorité (fonctionne partout)
+  title = doc.querySelector('meta[property="og:title"]')?.content?.trim() || '';
+  image = doc.querySelector('meta[property="og:image"]')?.content?.trim() || '';
+
+  if (merchant === 'amazon') {
+    title = title || doc.querySelector('#productTitle')?.textContent?.trim() || '';
+    image = image || doc.querySelector('#landingImage')?.src || doc.querySelector('#imgBlkFront')?.src || '';
+    const priceEl = doc.querySelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .apexPriceToPay .a-offscreen');
+    const wasEl   = doc.querySelector('.a-text-strike, #priceblock_saleprice');
+    if (priceEl) price = parseFloat(priceEl.textContent.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+    if (wasEl)   was   = parseFloat(wasEl.textContent.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+
+    // Fallback : chercher dans le JSON-LD
+    doc.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
+      try {
+        const j = JSON.parse(s.textContent);
+        if (j.offers?.price && !price) price = parseFloat(j.offers.price);
+        if (j.name && !title) title = j.name;
+        if (j.image && !image) image = Array.isArray(j.image) ? j.image[0] : j.image;
+      } catch(_){}
+    });
+
+    // Fallback prix : regex dans le HTML brut
+    if (!price) {
+      const m = html.match(/"priceAmount"\s*:\s*"?([\d.]+)"?/) ||
+                html.match(/"price"\s*:\s*"?([\d.]+)"?/) ||
+                html.match(/(\d+[.,]\d{2})\s*€/);
+      if (m) price = parseFloat((m[1]||'').replace(',','.'));
+    }
+    if (!was) {
+      const m = html.match(/"wasPrice"\s*:\s*"?([\d.]+)"?/) ||
+                html.match(/basisPrice.*?(\d+[.,]\d{2})/);
+      if (m) was = parseFloat((m[1]||'').replace(',','.'));
+    }
+
+  } else if (merchant === 'cdiscount') {
+    title = title || doc.querySelector('h1, .product-title')?.textContent?.trim() || '';
+    const priceT = doc.querySelector('.price, .prdtPriceAmt, [class*="Price"]')?.textContent || '';
+    const wasT   = doc.querySelector('.strikethrough, .priceStrike, [class*="OldPrice"]')?.textContent || '';
+    price = parseFloat(priceT.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+    was   = parseFloat(wasT.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+
+  } else if (merchant === 'boulanger') {
+    title = title || doc.querySelector('h1')?.textContent?.trim() || '';
+    const priceT = doc.querySelector('.price, .current-price, [class*="price"]')?.textContent || '';
+    const wasT   = doc.querySelector('.old-price, .crossed-price, [class*="OldPrice"]')?.textContent || '';
+    price = parseFloat(priceT.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+    was   = parseFloat(wasT.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+
+  } else if (merchant === 'darty' || merchant === 'fnac') {
+    title = title || doc.querySelector('h1')?.textContent?.trim() || '';
+    const priceT = doc.querySelector('.price, [class*="price"], [class*="Price"]')?.textContent || '';
+    price = parseFloat(priceT.replace(/[^0-9,]/g,'').replace(',','.')) || null;
+  }
+
+  // Fallback title
+  if (!title) title = doc.querySelector('title')?.textContent?.replace(/\s*[\|—\-].*$/, '').trim() || '';
+  // Fallback prix regex
+  if (!price) {
+    const m = html.match(/(\d{1,4}[.,]\d{2})\s*€/);
+    if (m) price = parseFloat(m[1].replace(',','.'));
+  }
+
+  return { title: title.slice(0,120), price, was, image, merchant,
+    discount: (price&&was) ? `-${Math.round((1-price/was)*100)}%` : null,
+    category: guessCategory(title), url };
+}
+
+function guessCategory(title) {
+  const t = (title||'').toLowerCase();
+  if (/tv|télé|oled|qled|écran|moniteur/.test(t)) return 'TV & Écrans';
+  if (/casque|écouteur|airpods|enceinte|audio|son/.test(t)) return 'Audio';
+  if (/laptop|macbook|pc portable|ordinateur/.test(t)) return 'Informatique';
+  if (/iphone|samsung|xiaomi|pixel|smartphone|téléphone/.test(t)) return 'Smartphones';
+  if (/ipad|tablette|galaxy tab/.test(t)) return 'Tablettes';
+  if (/playstation|xbox|nintendo|manette|gaming|jeu/.test(t)) return 'Gaming';
+  if (/aspirateur|robot|lave|réfrigérateur|four/.test(t)) return 'Électroménager';
+  if (/nespresso|café|cuisine|blender/.test(t)) return 'Cuisine';
+  if (/appareil photo|camera|gopro/.test(t)) return 'Photo & Vidéo';
+  if (/montre|watch|bracelet/.test(t)) return 'Montres';
+  return 'High-Tech';
+}
+
 async function fetchUrl() {
   const url = document.getElementById('productUrl').value.trim();
   if (!url) { showToast('Colle une URL produit', 'error'); return; }
@@ -406,36 +521,70 @@ async function fetchUrl() {
   document.getElementById('fetchSpinner').style.display = 'block';
   document.getElementById('fetchBtn').disabled = true;
 
-  try {
-    const r = await fetch(`${API}/admin/fetch-url`, {
-      method: 'POST',
-      headers: adminHeaders(),
-      body: JSON.stringify({ url })
-    });
-    const data = await r.json();
+  const merchant = detectMerchantClient(url);
 
-    if (!r.ok) throw new Error(data.error || 'Erreur');
+  try {
+    let data = null;
+
+    // ── Stratégie 1 : proxy CORS côté navigateur ──
+    try {
+      const html = await fetchWithProxy(url);
+      data = parseProductPage(html, url);
+    } catch(e) {
+      console.warn('Proxy échoué:', e.message);
+    }
+
+    // ── Stratégie 2 : Open Graph via microlink.io (API gratuite) ──
+    if (!data || !data.title) {
+      try {
+        const r = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+        const j = await r.json();
+        if (j.status === 'success') {
+          data = {
+            title: j.data.title || '',
+            image: j.data.image?.url || j.data.logo?.url || '',
+            price: null, was: null, discount: null,
+            merchant, url,
+            category: guessCategory(j.data.title||''),
+          };
+          // Essayer d'extraire le prix depuis la description
+          const desc = j.data.description || '';
+          const m = desc.match(/(\d+[.,]\d{2})\s*€/);
+          if (m) data.price = parseFloat(m[1].replace(',','.'));
+        }
+      } catch(e) { console.warn('Microlink échoué:', e.message); }
+    }
+
+    // ── Stratégie 3 : Remplir avec ce qu'on a + form ouvert ──
+    if (!data) data = { title:'', price:null, was:null, image:'', merchant, url, category:'High-Tech', discount:null };
 
     // Remplir le formulaire
     document.getElementById('fTitle').value    = data.title || '';
     document.getElementById('fPrice').value    = data.price || '';
     document.getElementById('fWas').value      = data.was || '';
-    document.getElementById('fUrl').value      = data.url || url;
+    document.getElementById('fUrl').value      = url;
     document.getElementById('fImage').value    = data.image || '';
     document.getElementById('fCategory').value = data.category || 'High-Tech';
     if (data.merchant) document.getElementById('fMerchant').value = data.merchant;
 
-    updatePreview(data);
     document.getElementById('previewCard').style.display = 'block';
     document.getElementById('formCard').style.display = 'block';
-    showToast('✅ Produit détecté !', 'success');
+    updatePreview(data);
+
+    if (data.title && data.price) {
+      showToast('✅ Produit détecté !', 'success');
+    } else if (data.title) {
+      showToast('⚠️ Titre détecté — vérifie le prix', 'success');
+    } else {
+      showToast('⚠️ Détection partielle — complète manuellement', '');
+    }
+
   } catch(e) {
-    showToast('❌ ' + e.message, 'error');
-    // Afficher quand même le form vide
+    // Afficher le form vide avec l'URL pré-remplie
     document.getElementById('fUrl').value = url;
-    const merchant = detectMerchantClient(url);
     if (merchant) document.getElementById('fMerchant').value = merchant;
     document.getElementById('formCard').style.display = 'block';
+    showToast('⚠️ Auto-détection impossible — remplis manuellement', '');
   } finally {
     document.getElementById('fetchBtnText').textContent = 'Détecter automatiquement';
     document.getElementById('fetchSpinner').style.display = 'none';
@@ -584,23 +733,150 @@ function filterDeals() {
       <td>${d.source==='manual' ? '<span class="manual-badge">Manuel</span>' : d.source==='dealabs' ? '<span class="auto-badge">Dealabs</span>' : '<span class="auto-badge">Auto</span>'}</td>
       <td>${d.hot ? '<span class="hot-badge">🔥 Hot</span>' : '<span style="color:#555;font-size:12px">Non</span>'}</td>
       <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-danger" onclick="deleteDeal('${d._id}','${(d.title||'').slice(0,30).replace(/'/g,"\\'")}')">🗑️ Supprimer</button>
-          <button class="btn btn-sm btn-secondary" onclick="toggleHot('${d._id}',${!d.hot})">${d.hot?'❄️ Retirer hot':'🔥 Mettre hot'}</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="background:rgba(10,132,255,.15);color:#0A84FF;border:1px solid rgba(10,132,255,.3)" onclick="openEditModal('${d._id}')">✏️ Modifier</button>
+          <button class="btn btn-danger" onclick="deleteDeal('${d._id}')">🗑️</button>
+          <button class="btn btn-sm btn-secondary" onclick="toggleHot('${d._id}',${!d.hot})">${d.hot?'❄️':'🔥'}</button>
         </div>
       </td>
     </tr>`;
   }).join('');
 }
 
-async function deleteDeal(id, title) {
-  if (!confirm(`Supprimer "${title}..." ?`)) return;
+// ─── EDIT MODAL ────────────────────────────────────────────────────────────
+function openEditModal(id) {
+  const d = allDeals.find(x=>x._id===id);
+  if (!d) return;
+
+  // Créer la modale si elle n'existe pas
+  let modal = document.getElementById('editModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'editModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+    document.body.appendChild(modal);
+  }
+
+  const cats = ['Audio','TV & Écrans','Informatique','Smartphones','Tablettes','Gaming','Électroménager','Cuisine','Photo & Vidéo','Montres','High-Tech','Mode','Maison','Sport','Beauté'];
+  const merchants = ['amazon','cdiscount','boulanger','darty','fnac','ldlc','rakuten','autres'];
+
+  modal.innerHTML = `
+  <div style="background:#161616;border:1px solid #2A2A2A;border-radius:16px;padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-size:16px;font-weight:800">✏️ Modifier le deal</div>
+      <button onclick="closeEditModal()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer">✕</button>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label class="form-label">Titre</label>
+      <input class="inp" id="e_title" value="${(d.title||'').replace(/"/g,'&quot;')}">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label class="form-label">Prix actuel (€)</label>
+        <input class="inp" id="e_price" type="number" step="0.01" value="${d.price||''}">
+      </div>
+      <div>
+        <label class="form-label">Prix d'origine (€)</label>
+        <input class="inp" id="e_was" type="number" step="0.01" value="${d.was||''}">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label class="form-label">Marchand</label>
+        <select class="inp" id="e_merchant">
+          ${merchants.map(m=>`<option value="${m}" ${d.merchant===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Catégorie</label>
+        <select class="inp" id="e_category">
+          ${cats.map(c=>`<option value="${c}" ${d.category===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="form-label">URL du produit</label>
+      <input class="inp" id="e_url" value="${(d.url||'').replace(/"/g,'&quot;')}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="form-label">URL de l'image</label>
+      <input class="inp" id="e_image" value="${(d.image||'').replace(/"/g,'&quot;')}">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+      <div>
+        <label class="form-label">Stock (unités)</label>
+        <input class="inp" id="e_stock" type="number" value="${d.stock||50}">
+      </div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="e_hot" ${d.hot?'checked':''}><span class="toggle-slider"></span></label>
+          <span style="font-size:13px;font-weight:600">🔥 Deal Hot</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="saveEdit('${id}')">💾 Enregistrer</button>
+      <button class="btn btn-secondary" onclick="closeEditModal()">Annuler</button>
+    </div>
+  </div>`;
+
+  modal.style.display = 'flex';
+  // Fermer en cliquant dehors
+  modal.onclick = e => { if(e.target===modal) closeEditModal(); };
+}
+
+function closeEditModal() {
+  const modal = document.getElementById('editModal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveEdit(id) {
+  const updates = {
+    title:    document.getElementById('e_title').value.trim(),
+    price:    parseFloat(document.getElementById('e_price').value) || 0,
+    was:      parseFloat(document.getElementById('e_was').value) || null,
+    merchant: document.getElementById('e_merchant').value,
+    category: document.getElementById('e_category').value,
+    url:      document.getElementById('e_url').value.trim(),
+    image:    document.getElementById('e_image').value.trim() || null,
+    stock:    parseInt(document.getElementById('e_stock').value) || 50,
+    hot:      document.getElementById('e_hot').checked,
+  };
+  // Recalculer la remise
+  if (updates.price && updates.was) {
+    updates.discount = `-${Math.round((1-updates.price/updates.was)*100)}%`;
+  }
+
   try {
-    await fetch(`${API}/admin/deals/${id}`, { method:'DELETE', headers:adminHeaders() });
+    const r = await fetch(`${API}/admin/deals/${id}`, {
+      method: 'PUT',
+      headers: adminHeaders(),
+      body: JSON.stringify(updates)
+    });
+    if (!r.ok) throw new Error('Erreur serveur');
+    // Mettre à jour localement
+    const idx = allDeals.findIndex(d=>d._id===id);
+    if (idx>=0) allDeals[idx] = { ...allDeals[idx], ...updates };
+    filterDeals();
+    closeEditModal();
+    showToast('✅ Deal modifié !', 'success');
+  } catch(e) {
+    showToast('❌ Erreur: ' + e.message, 'error');
+  }
+}
+
+async function deleteDeal(id) {
+  const deal = allDeals.find(d=>d._id===id);
+  const title = (deal?.title||'ce deal').slice(0,40);
+  if (!confirm(`Supprimer "${title}" ?`)) return;
+  try {
+    const r = await fetch(`${API}/admin/deals/${id}`, { method:'DELETE', headers:adminHeaders() });
+    if (!r.ok) throw new Error('Erreur serveur');
     allDeals = allDeals.filter(d=>d._id!==id);
     filterDeals();
-    showToast('Deal supprimé', 'success');
-  } catch(e) { showToast('Erreur suppression', 'error'); }
+    showToast('✅ Deal supprimé', 'success');
+  } catch(e) { showToast('❌ Erreur suppression: ' + e.message, 'error'); }
 }
 
 async function toggleHot(id, hot) {

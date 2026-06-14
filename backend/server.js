@@ -71,8 +71,25 @@ function guessCategory(title) {
   if (/nespresso|café|cuisine|robot culinaire|blender/.test(t)) return 'Cuisine';
   if (/appareil photo|camera|gopro|objectif/.test(t)) return 'Photo & Vidéo';
   if (/montre|watch|bracelet connecté/.test(t)) return 'Montres';
+  // Mode
+  if (/t-shirt|tee-shirt|pantalon|jean|robe|jupe|short|veste|manteau|pull|sweat|chemise|polo|legging|jogging|survêtement|maillot|chaussure|sneaker|basket|botte|sandale|escarpin/.test(t)) return 'Mode';
+  // Beauté
+  if (/maquillage|rouge à lèvres|mascara|fond de teint|parfum|eau de toilette|crème|sérum|soin visage|anti-âge|palette|vernis/.test(t)) return 'Beauté';
+  // Hygiène
+  if (/shampoing|gel douche|savon|dentifrice|brosse à dent|déodorant|rasoir|épilateur|coton|hygiène|lingette/.test(t)) return 'Hygiène';
+  // Bricolage
+  if (/perceuse|visseuse|tournevis|marteau|scie|ponceuse|meuleuse|établi|outillage|bricolage|perforateur|niveau laser|tronçonneuse|clé à/.test(t)) return 'Bricolage';
+  // Sacs & accessoires
+  if (/sac à dos|sac à main|valise|bagage|portefeuille|ceinture|écharpe|gants|bonnet|casquette|lunettes de soleil|pochette|sacoche/.test(t)) return 'Sacs & Accessoires';
+  // Maison
+  if (/canapé|fauteuil|table basse|chaise|étagère|meuble|rangement|tapis|rideau|coussin|couette|housse|literie|matelas|lampe|luminaire|décoration|cadre photo|miroir|vase|bougie|plante artificielle|organisateur|placard|panier/.test(t)) return 'Maison';
+  // Sport & Loisirs
+  if (/vélo|trottinette|tapis de course|haltère|poids|musculation|fitness|yoga|natation|piscine|tente|camping|randonnée|course à pied|running|football|basketball|tennis|raquette|ballon|skateboard|roller|patin|protection sport|gourde sport/.test(t)) return 'Sport & Loisirs';
+  // Fournitures de bureau
+  if (/stylo|crayon|cahier|classeur|agenda|bloc-notes|papier|enveloppe|agrafeuse|perforateur|trombone|surligneur|feutre|gomme|règle|ciseaux|colle|post-it|chemise cartonnée|trieur|imprimante|cartouche d'encre|toner|calculatrice|bureau\b/.test(t)) return 'Fournitures de bureau';
   return 'High-Tech';
 }
+
 
 // ─── SCRAPERS ─────────────────────────────────────────────────────────────
 // ─── DEALABS RSS SCRAPER ──────────────────────────────────────────────────
