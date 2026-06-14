@@ -1,7 +1,7 @@
 /**
  * DealFlash Backend
- * Express API + Scrapers Amazon/Cdiscount/Boulanger/Darty + NeDB + Alertes prix
- * ✅ Compatible Render.com (free tier)
+ * Express API + Scrapers Amazon/Cdiscount/Boulanger/Darty + MongoDB Atlas + Alertes prix
+ * ✅ Compatible Render.com (free tier) — données persistantes via MongoDB Atlas
  */
 
 const express = require('express');
@@ -9,9 +9,7 @@ const cors = require('cors');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const cron = require('node-cron');
-const Datastore = require('nedb-promises');
-const path = require('path');
-const fs = require('fs');
+const { MongoClient, ObjectId } = require('mongodb');
 
 const app = express();
 
@@ -28,18 +26,115 @@ app.options("*", cors());
 
 app.use(express.json());
 
-// ─── DATABASE ──────────────────────────────────────────────────────────────
-// Sur Render free tier, /tmp est le seul dossier vraiment persistant
-// entre redémarrages à chaud. Pour la vraie persistance longue durée,
-// brancher MongoDB Atlas free (voir README).
-const DB_DIR = process.env.DB_PATH || path.join(__dirname, 'data');
-if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+// ─── DATABASE — MongoDB Atlas ─────────────────────────────────────────────
+// Connection string fournie via variable d'environnement MONGODB_URI
+// Format: mongodb+srv://user:pass@cluster.mongodb.net/?appName=...
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.DB_NAME || 'bonplansflash';
+
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI manquant dans les variables d\'environnement !');
+}
+
+let mongoClient, mongoDb;
+let dealsCol, alertsCol, historyCol;
+
+// Wrapper compatible avec l'API NeDB (find/findOne/insert/update/remove/count)
+// pour ne pas avoir à réécrire toutes les routes existantes.
+function makeCollectionWrapper(getCollection) {
+  return {
+    async find(query = {}) {
+      const col = getCollection();
+      const docs = await col.find(normalizeQuery(query)).toArray();
+      return docs.map(normalizeDoc);
+    },
+    async findOne(query = {}) {
+      const col = getCollection();
+      const doc = await col.findOne(normalizeQuery(query));
+      return doc ? normalizeDoc(doc) : null;
+    },
+    async insert(doc) {
+      const col = getCollection();
+      const toInsert = { ...doc };
+      delete toInsert._id;
+      const result = await col.insertOne(toInsert);
+      return normalizeDoc({ ...toInsert, _id: result.insertedId });
+    },
+    async update(query, update, options = {}) {
+      const col = getCollection();
+      const q = normalizeQuery(query);
+      const u = normalizeUpdate(update);
+      if (options.upsert) {
+        const result = await col.updateOne(q, u, { upsert: true });
+        return result.upsertedCount + result.modifiedCount;
+      }
+      if (options.multi) {
+        const result = await col.updateMany(q, u);
+        return result.modifiedCount;
+      }
+      const result = await col.updateOne(q, u);
+      return result.modifiedCount;
+    },
+    async remove(query = {}, options = {}) {
+      const col = getCollection();
+      const q = normalizeQuery(query);
+      if (options.multi) {
+        const result = await col.deleteMany(q);
+        return result.deletedCount;
+      }
+      const result = await col.deleteOne(q);
+      return result.deletedCount;
+    },
+    async count(query = {}) {
+      const col = getCollection();
+      return col.countDocuments(normalizeQuery(query));
+    },
+    async ensureIndex() { /* no-op, géré par Mongo automatiquement */ },
+  };
+}
+
+// Convertit _id string -> ObjectId pour les requêtes Mongo
+function normalizeQuery(query) {
+  if (!query) return {};
+  const q = { ...query };
+  if (q._id && typeof q._id === 'string') {
+    try { q._id = new ObjectId(q._id); } catch(_) { /* garde la string si invalide */ }
+  }
+  return q;
+}
+
+// Convertit ObjectId -> string dans les documents retournés
+function normalizeDoc(doc) {
+  if (!doc) return doc;
+  return { ...doc, _id: doc._id?.toString() };
+}
+
+// Convertit { $set: {...} } etc., en gérant le cas où l'update est un objet brut (sans opérateur Mongo)
+function normalizeUpdate(update) {
+  const hasOperator = Object.keys(update).some(k => k.startsWith('$'));
+  return hasOperator ? update : { $set: update };
+}
 
 const db = {
-  deals:   Datastore.create({ filename: path.join(DB_DIR, 'deals.db'),   autoload: true }),
-  alerts:  Datastore.create({ filename: path.join(DB_DIR, 'alerts.db'),  autoload: true }),
-  history: Datastore.create({ filename: path.join(DB_DIR, 'history.db'), autoload: true }),
+  deals:   makeCollectionWrapper(() => dealsCol),
+  alerts:  makeCollectionWrapper(() => alertsCol),
+  history: makeCollectionWrapper(() => historyCol),
 };
+
+async function connectMongo() {
+  mongoClient = new MongoClient(MONGODB_URI);
+  await mongoClient.connect();
+  mongoDb = mongoClient.db(DB_NAME);
+  dealsCol   = mongoDb.collection('deals');
+  alertsCol  = mongoDb.collection('alerts');
+  historyCol = mongoDb.collection('history');
+
+  // Index pour accélérer les recherches et garantir l'unicité externalId
+  await dealsCol.createIndex({ externalId: 1 }, { unique: true, sparse: true });
+  await alertsCol.createIndex({ email: 1 });
+
+  console.log(`✅ MongoDB connecté → base "${DB_NAME}"`);
+}
 
 // ─── HEADERS SCRAPING ─────────────────────────────────────────────────────
 const HEADERS = {
@@ -622,26 +717,39 @@ process.on('SIGTERM', () => {
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0';
 
-const server = app.listen(PORT, HOST, async () => {
-  console.log(`\n🚀 DealFlash API démarrée`);
-  console.log(`   → Local  : http://localhost:${PORT}`);
-  if (process.env.RENDER_EXTERNAL_URL)
-    console.log(`   → Public : ${process.env.RENDER_EXTERNAL_URL}`);
-  console.log(`   → Health : http://localhost:${PORT}/health\n`);
-  console.log(`   → Health : http://localhost:${PORT}/health\n`);
-  await seedDemoData();
-  // Lancer Dealabs au démarrage pour avoir de vrais deals immédiatement
-  setTimeout(async () => {
-    console.log('[STARTUP] Scraping Dealabs...');
-    try {
-      const deals = await scrapeDealabs();
-      let added = 0;
-      for (const deal of deals) {
-        const existing = await db.deals.findOne({ externalId: deal.externalId });
-        if (!existing) { await db.deals.insert(deal); added++; }
-        else await db.deals.update({ externalId: deal.externalId }, { $set: deal });
-      }
-      console.log(`[STARTUP] Dealabs: ${added} nouveaux deals ajoutés`);
-    } catch(e) { console.error('[STARTUP] Dealabs erreur:', e.message); }
-  }, 3000);
-});
+let server;
+
+async function start() {
+  try {
+    await connectMongo();
+  } catch(e) {
+    console.error('❌ Erreur connexion MongoDB:', e.message);
+    console.error('   Vérifie MONGODB_URI dans les variables d\'environnement Render.');
+    process.exit(1);
+  }
+
+  server = app.listen(PORT, HOST, async () => {
+    console.log(`\n🚀 DealFlash API démarrée`);
+    console.log(`   → Local  : http://localhost:${PORT}`);
+    if (process.env.RENDER_EXTERNAL_URL)
+      console.log(`   → Public : ${process.env.RENDER_EXTERNAL_URL}`);
+    console.log(`   → Health : http://localhost:${PORT}/health\n`);
+    await seedDemoData();
+    // Lancer Dealabs au démarrage pour avoir de vrais deals immédiatement
+    setTimeout(async () => {
+      console.log('[STARTUP] Scraping Dealabs...');
+      try {
+        const deals = await scrapeDealabs();
+        let added = 0;
+        for (const deal of deals) {
+          const existing = await db.deals.findOne({ externalId: deal.externalId });
+          if (!existing) { await db.deals.insert(deal); added++; }
+          else await db.deals.update({ externalId: deal.externalId }, { $set: deal });
+        }
+        console.log(`[STARTUP] Dealabs: ${added} nouveaux deals ajoutés`);
+      } catch(e) { console.error('[STARTUP] Dealabs erreur:', e.message); }
+    }, 3000);
+  });
+}
+
+start();
